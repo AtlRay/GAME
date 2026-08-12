@@ -1,6 +1,6 @@
 # Implementation Status
 
-Last updated: 2026-08-12 (initial kickoff session)
+Last updated: 2026-08-12 (initial kickoff session + post-deploy /world fix)
 
 ## Repo audit (before this session)
 
@@ -30,8 +30,9 @@ rebuild) — no shared Supabase project, no shared state.
       list, never anything client-supplied (blueprint Section 25).
     - `track`: a single telemetry hook other modules call instead of
       logging directly, with a swappable sink.
-  - `apps/web` — Next.js 15, TypeScript strict, deployed as a normal
-    Vercel app:
+  - `apps/web` — Next.js 14.2.35, TypeScript strict, deployed as a normal
+    Vercel app (downgraded from 15.5.23 post-deploy — see "Post-deploy
+    fix" below for why):
     - `/` — landing page.
     - `/world` — the vertical slice: R3F canvas, Rapier physics,
       third-person WASD character controller (dynamic rigid body,
@@ -76,6 +77,69 @@ Manually smoke-tested against a production build (`next build` +
 
 Not yet run: browser E2E, Lighthouse/perf budget, or a real multi-tab
 proximity/social test (no realtime layer exists yet — see below).
+
+## Post-deploy fix: /world showed nothing on Vercel
+
+After the first deploy, clicking "Enter the World" produced a blank
+canvas with no visible error — Next.js's generic client-side error
+overlay, not a game bug. Reproduced locally against a real production
+build (`next build` + `next start`, driven by headless Chromium, not
+just `curl` — `curl` only checks that the HTML shell returns 200; it
+never executes client JS, which is why the earlier "smoke test" in this
+doc missed this). The console showed:
+
+```
+TypeError: Cannot read properties of undefined (reading 'ReactCurrentBatchConfig')
+```
+
+thrown from inside the async webpack chunk containing `react-reconciler`
+(the renderer `@react-three/fiber` uses internally), the moment that
+chunk's module-level setup code ran.
+
+Root cause, confirmed by inspecting the actual compiled chunk output,
+not guessed: `react-reconciler@0.27.0` (a fixed dependency of
+`@react-three/fiber` v8) is built for **React 18's** shared-internals
+object shape. Next.js 15.5.23 vendors its **own internal copy of React
+19** (`next/dist/compiled/react`, package name `react-builtin`) for its
+own chunk-loading/Suspense machinery — confirmed by inspecting that
+vendored package's `package.json` and finding its internals object
+shaped `{H, A, T, S}`, which is React 19's dispatcher shape, not React
+18's `ReactCurrentDispatcher`/`ReactCurrentBatchConfig`/etc. keys. The
+async chunk that Next.js loads behind `next/dynamic(..., { ssr: false
+})` ends up resolving `react` through Next's own React-19-shaped
+internals in that code path, and `react-reconciler`'s React-18-shaped
+lookup (`.ReactCurrentBatchConfig`) comes back `undefined` against it.
+This is a structural incompatibility between Next.js 15.5.x's internal
+React 19 vendoring and the React-18-only R3F v8 / react-reconciler v0.27
+stack — not fixable via webpack config (three different config-level
+workarounds were tried and verified, one at a time, against a real
+browser: a `pnpm.overrides` forcing a single `scheduler` version, a
+webpack `resolve.alias` forcing a single `react`/`react-dom` path, and
+`optimization.runtimeChunk = "single"`; none changed the outcome —
+confirmed by the crashing chunk's content hash staying byte-identical
+across all three attempts).
+
+**Fix:** downgraded `apps/web`'s `next` dependency from `^15.1.4`
+(resolved to 15.5.23) to `^14.2.35`, the latest Next 14 release, which
+doesn't vendor React 19 internally and has no such collision with the
+React 18-only R3F v8 stack. Reverted the three now-unnecessary webpack
+workarounds. Re-verified against a clean `next build` + `next start` +
+headless-Chromium load of `/world`: canvas mounts (1 canvas element,
+1280×720), zero page errors, and the actual game logic fires — console
+shows `[telemetry] companion_state_changed {from: IDLE, to: SLEEP,
+signal: homeZone}`, and the HUD ("Chachy: SLEEP", "Trigger Alert",
+"Ask Zayra") renders correctly. Full test/typecheck suite re-run clean
+after the downgrade (see "Tests run" above). `/`, `/world`, and
+`POST /api/zayra/chat` all re-verified at 200/correct response on the
+downgraded build.
+
+If a future session wants Next.js 15+ again, it needs to come paired
+with a matching R3F upgrade: `@react-three/fiber` v9 + a newer
+`react-reconciler` (React 19-shaped) + `react`/`react-dom` 19.x +
+confirming `@react-three/rapier`'s current release supports fiber v9
+(it didn't as of this session's `1.5.0`). That's a bigger, riskier
+three-package coordinated bump — deliberately not attempted here in
+favor of the smaller, fully-verified Next 14 downgrade.
 
 ## Open design question (flagged per kickoff instructions, not invented)
 

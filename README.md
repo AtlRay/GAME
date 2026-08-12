@@ -45,7 +45,7 @@ pnpm typecheck
 
 ## Deploy
 
-`apps/web` is a standard Next.js 15 app and deploys to Vercel with no
+`apps/web` is a standard Next.js 14 app and deploys to Vercel with no
 special configuration — connect the repo, set root directory to
 `apps/web`, and it will build with the workspace's pnpm lockfile at the
 repo root (Vercel auto-detects the monorepo via `pnpm-workspace.yaml`).
