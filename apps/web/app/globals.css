@@ -1,0 +1,26 @@
+:root {
+  --nba-void: #05060c;
+  --nba-cyan: #35e6ff;
+  --nba-violet: #8b5cf6;
+  --nba-gold: #d4af6a;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--nba-void);
+  color: #e8e9f0;
+  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+
+canvas {
+  display: block;
+  touch-action: none;
+}
